@@ -18,6 +18,6 @@ export QT_QPA_PLATFORM=offscreen
 set +e
 "$C/MacOS/bin/python3" test_plugin.py > _out.log 2>&1
 STATUS=$?
-grep -v "proj_create_from_database\|Cannot find proj.db\|propagateSizeHints\|^Warning 1: Field" _out.log
+grep -v "proj_create_from_database\|Cannot find proj.db\|propagateSizeHints\|does not support raise\|^Warning 1: Field" _out.log
 rm -f _out.log
 exit $STATUS
