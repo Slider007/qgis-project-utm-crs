@@ -1,0 +1,21 @@
+[general]
+name=UTM СК проекта
+qgisMinimumVersion=3.40
+qgisMaximumVersion=4.99
+supportsQt6=True
+description=Одна кнопка: система координат проекта становится зоной UTM (WGS 84), в которую попадает центр карты
+about=Кнопка на панели «Альтан-Эко» и пункт в меню «Модули → Альтан-Эко». По центру видимой части карты определяется зона UTM, и проекту назначается система координат WGS 84 / UTM этой зоны (EPSG:326xx в северном полушарии, EPSG:327xx в южном). Учитываются особые зоны у Норвегии и Шпицбергена. Слои и их данные не меняются — меняется только СК проекта; карта остаётся на том же месте.
+version=1.0.0
+author=Slider007
+email=16690768+Slider007@users.noreply.github.com
+homepage=https://github.com/Slider007/qgis-project-utm-crs
+repository=https://github.com/Slider007/qgis-project-utm-crs
+tracker=https://github.com/Slider007/qgis-project-utm-crs/issues
+tags=utm,crs,projection,wgs84,zone,система координат,СК,проекция,зона,зона UTM,UTM зона
+category=Plugins
+icon=icon.svg
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+changelog=
+    1.0.0 - первая версия: кнопка ставит проекту систему координат UTM по центру карты; у пункта «Модули → Альтан-Эко» появился логотип компании.
