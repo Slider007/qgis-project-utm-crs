@@ -128,3 +128,35 @@ def crs_for(item, register=True):
         if srs_id >= 0:
             return QgsCoordinateReferenceSystem("USER:%d" % srs_id)
     return crs
+
+
+# ------------------------------------------------------------ СК-63
+
+# Зоны СК-63 есть в EPSG: код, район и зона, осевой меридиан (из базы PROJ).
+# Свои параметры не храним — СК берётся по коду EPSG.
+CS63 = (
+    (2935, "A1", 41.53333333), (2936, "A2", 44.53333333),
+    (2937, "A3", 47.53333333), (2938, "A4", 50.53333333),
+    (3350, "C0", 21.95), (3351, "C1", 24.95), (3352, "C2", 27.95),
+    (2939, "K2", 50.76666667), (2940, "K3", 53.76666667), (2941, "K4", 56.76666667),
+    (7825, "X1", 23.5), (7826, "X2", 26.5), (7827, "X3", 29.5), (7828, "X4", 32.5),
+    (7829, "X5", 35.5), (7830, "X6", 38.5), (7831, "X7", 41.5),
+)
+# Зона шириной 3°: берём свою и соседние
+CS63_MAX_DELTA = 4.5
+
+
+def cs63_near(lon, max_delta=CS63_MAX_DELTA):
+    """Зоны СК-63 рядом с долготой: (код EPSG, «район и зона», осевой меридиан)."""
+    found = [z for z in CS63 if abs(lon - z[2]) <= max_delta]
+    return sorted(found, key=lambda z: abs(lon - z[2]))
+
+
+def cs63_name(zone):
+    """«СК-63 район X зона 4 (EPSG:7828)»."""
+    code, label, _ = zone
+    return "СК-63 район {} зона {} (EPSG:{})".format(label[0], label[1], code)
+
+
+def cs63_crs(zone):
+    return QgsCoordinateReferenceSystem("EPSG:%d" % zone[0])

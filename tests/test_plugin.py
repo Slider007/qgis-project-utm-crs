@@ -200,6 +200,27 @@ class MskDataTest(unittest.TestCase):
         self.assertEqual(msk.region_from_reverse(answer), (50, "Московская область"))
 
 
+class Cs63Test(unittest.TestCase):
+    def test_table_matches_epsg(self):
+        import re
+        for code, label, lon0 in msk.CS63:
+            with self.subTest(label):
+                crs = QgsCoordinateReferenceSystem("EPSG:%d" % code)
+                self.assertTrue(crs.isValid())
+                self.assertEqual(crs.description(), "Pulkovo 1942 / CS63 zone " + label)
+                got = float(re.search(r"\+lon_0=(\S+)", crs.toProj()).group(1))
+                self.assertAlmostEqual(got, lon0, places=5)
+
+    def test_nearby_zones(self):
+        # Херсон: своя зона X4, рядом X5 и X3
+        zones = msk.cs63_near(32.617)
+        self.assertEqual([z[1] for z in zones], ["X4", "X5", "X3"])
+        self.assertEqual(msk.cs63_name(zones[0]), "СК-63 район X зона 4 (EPSG:7828)")
+        self.assertEqual(msk.cs63_crs(zones[0]).authid(), "EPSG:7828")
+        self.assertEqual([z[1] for z in msk.cs63_near(50.6)], ["A4", "K2", "A3", "K3"])
+        self.assertEqual(msk.cs63_near(151.2), [])  # Сидней: СК-63 там нет
+
+
 class PluginTest(unittest.TestCase):
     def setUp(self):
         QgsProject.instance().clear()
@@ -279,7 +300,7 @@ class PluginTest(unittest.TestCase):
         self.show("EPSG:3857", QgsRectangle(c.x() - 5000, c.y() - 5000, c.x() + 5000, c.y() + 5000))
         dlg = self.open()
         self.assertEqual(self.rows(dlg), ["WGS 84 / UTM zone 56S (EPSG:32756)"])
-        self.assertIn("Не территория России (Австралия)", dlg.info.text())
+        self.assertIn("относит это место к: Австралия", dlg.info.text())
         dlg.apply_btn.click()
         self.assertEqual(QgsProject.instance().crs().authid(), "EPSG:32756")
 
@@ -296,14 +317,41 @@ class PluginTest(unittest.TestCase):
         msk.reverse_geocode = lambda lon, lat: (None, "Нет ответа от сервиса адресов OpenStreetMap.")
         self.show("EPSG:4326", QgsRectangle(38.2, 55.85, 38.5, 55.95))
         dlg = self.open()
+        # без ответа сервиса не знаем, есть ли для места МСК: СК-63 не показываем
         self.assertEqual(self.rows(dlg), ["WGS 84 / UTM zone 37N (EPSG:32637)"])
         self.assertIn("МСК не показаны", dlg.info.text())
+
+    def test_cs63_for_kherson(self):
+        # OpenStreetMap отдаёт Украину: МСК нет, показываем СК-63
+        msk.reverse_geocode = lambda lon, lat: (
+            {"address": {"state": "Херсонская область", "ISO3166-2-lvl4": "UA-65",
+                         "country": "Украина", "country_code": "ua"}}, None)
+        self.show("EPSG:4326", QgsRectangle(32.5, 46.55, 32.75, 46.7))
+        dlg = self.open()
+        rows = self.rows(dlg)
+        self.assertEqual(rows[0], "WGS 84 / UTM zone 36N (EPSG:32636)")
+        self.assertTrue(rows[1].startswith("СК-63 район X зона 4 (EPSG:7828)"), rows[1])
+        self.assertTrue(rows[2].startswith("СК-63 район X зона 5"))
+        self.assertTrue(rows[3].startswith("СК-63 район X зона 3"))
+        self.assertTrue(dlg.list.item(1).font().bold())
+        self.assertIn("Украина", dlg.info.text())
+        dlg.list.setCurrentRow(1)
+        dlg.apply_btn.click()
+        self.assertEqual(QgsProject.instance().crs().authid(), "EPSG:7828")
+
+    def test_no_cs63_where_msk_exists(self):
+        self.show("EPSG:4326", QgsRectangle(38.2, 55.85, 38.5, 55.95))
+        dlg = self.open()
+        self.assertFalse([r for r in self.rows(dlg) if "СК-63" in r])
 
     def test_region_without_msk(self):
         self.set_region("RU-TY", "Республика Тыва")
         self.show("EPSG:4326", QgsRectangle(93.9, 51.6, 94.1, 51.8))
         dlg = self.open()
-        self.assertEqual(dlg.list.count(), 1)  # только UTM
+        rows = self.rows(dlg)
+        self.assertEqual(rows[0], "WGS 84 / UTM zone 46N (EPSG:32646)")
+        # Тывы в наборе МСК нет: показываются зоны СК-63 рядом
+        self.assertTrue(all("СК-63" in r for r in rows[1:]), rows)
         self.assertIn("нет МСК", dlg.info.text())
 
     def test_unload_leaves_nothing(self):

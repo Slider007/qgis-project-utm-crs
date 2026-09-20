@@ -19,11 +19,12 @@ ROLE = Qt.ItemDataRole.UserRole
 
 
 class CrsDialog(QDialog):
-    """СК по центру карты: зона UTM и МСК субъекта РФ."""
+    """СК по центру карты: зона UTM, МСК субъекта РФ, при их отсутствии — зоны СК-63."""
 
     def __init__(self, iface, parent=None):
         super().__init__(parent)
         self.iface = iface
+        self._has_msk = self._msk_answered = False
         self.setWindowTitle("СК проекта по центру карты")
         self.resize(520, 360)
 
@@ -89,6 +90,9 @@ class CrsDialog(QDialog):
         self.info.setText("\n".join(lines + ["Запрос субъекта РФ к OpenStreetMap…"]))
         self.info.repaint()
         lines.append(self._add_msk(lon, lat))
+        # СК-63 показываем, только когда точно знаем, что МСК для места нет
+        if self._msk_answered and not self._has_msk:
+            lines.append(self._add_cs63(lon))
         lines.append("Сейчас у проекта: " + (QgsProject.instance().crs().description() or "СК не задана"))
         self.info.setText("\n".join(line for line in lines if line))
         if self.list.count():
@@ -97,12 +101,15 @@ class CrsDialog(QDialog):
 
     def _add_msk(self, lon, lat):
         """Добавляет МСК субъекта; возвращает строку для пояснения."""
+        self._has_msk = self._msk_answered = False
         answer, error = msk.reverse_geocode(lon, lat)
         if error:
             return error + " МСК не показаны."
+        self._msk_answered = True
         code, name = msk.region_from_reverse(answer)
         if code is None:
-            return "Не территория России ({}): МСК нет.".format(name or "место не определено")
+            return "OpenStreetMap относит это место к: {}. МСК для него в модуле нет.".format(
+                name or "место не определено")
         zones = msk.zones_for(code, lon)
         if not zones:
             return "Субъект: {} ({:02d}). В модуле для него нет МСК.".format(name, code)
@@ -112,15 +119,30 @@ class CrsDialog(QDialog):
             if cm is not None:
                 text += "  (осевой меридиан {:.2f}°)".format(cm)
             self._add(text, ("msk", item), bold=i == 0)
+        self._has_msk = True
         return "Субъект: {} ({:02d}). Подходящая МСК выделена жирным.".format(name, code)
+
+    def _add_cs63(self, lon):
+        """Когда МСК нет — зоны СК-63 рядом с центром карты."""
+        zones = msk.cs63_near(lon)
+        if not zones:
+            return ""
+        for i, zone in enumerate(zones):
+            self._add("{}  (осевой меридиан {:.2f}°)".format(msk.cs63_name(zone), zone[2]),
+                      ("cs63", zone), bold=i == 0)
+        return "Зоны СК-63 рядом с центром карты; ближайшая по осевому меридиану выделена жирным."
 
     def apply(self, *args):
         current = self.list.currentItem()
         if current is None:
             return
         kind, value = current.data(ROLE)
-        crs = msk.crs_for(value) if kind == "msk" else value
-        name = value["name"] if kind == "msk" else current.text()
+        if kind == "msk":
+            crs, name = msk.crs_for(value), value["name"]
+        elif kind == "cs63":
+            crs, name = msk.cs63_crs(value), msk.cs63_name(value)
+        else:
+            crs, name = value, current.text()
         project = QgsProject.instance()
         if project.crs() == crs:
             self.iface.messageBar().pushMessage(TITLE, "Уже установлена: " + name,
