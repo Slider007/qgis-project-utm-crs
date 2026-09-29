@@ -4,6 +4,7 @@
 """
 
 import os
+import re
 import shutil
 import sys
 import unittest
@@ -35,7 +36,7 @@ from qgis.core import (  # noqa: E402
 from qgis.gui import QgsMapCanvas  # noqa: E402
 from qgis.PyQt import sip  # noqa: E402
 from qgis.PyQt.QtCore import QEvent  # noqa: E402
-from qgis.PyQt.QtWidgets import QMainWindow, QMenu, QToolBar  # noqa: E402
+from qgis.PyQt.QtWidgets import QMainWindow, QMenu, QPushButton, QToolBar  # noqa: E402
 
 app = QgsApplication([], True, PROFILE)
 if os.environ.get("QGIS_PREFIX_PATH"):
@@ -202,7 +203,6 @@ class MskDataTest(unittest.TestCase):
 
 class Cs63Test(unittest.TestCase):
     def test_table_matches_epsg(self):
-        import re
         for code, label, lon0 in msk.CS63:
             with self.subTest(label):
                 crs = QgsCoordinateReferenceSystem("EPSG:%d" % code)
@@ -257,6 +257,15 @@ class PluginTest(unittest.TestCase):
         self.assertIn(self.plugin.action, bars[0].actions())
         self.assertEqual(self.iface.menu, [("&Альтан-Эко", self.plugin.action.text())])
         self.assertFalse(self.plugin.action.icon().isNull())
+
+    def test_buttons_are_russian(self):
+        """Стандартные кнопки Qt не переводятся — все подписи окна пишем сами."""
+        self.show("EPSG:4326", QgsRectangle(38.2, 55.85, 38.5, 55.95))
+        dlg = self.open()
+        labels = [b.text() for b in dlg.findChildren(QPushButton)]
+        self.assertIn("Закрыть", labels)
+        latin = [t for t in labels if re.search("[A-Za-z]", t)]
+        self.assertEqual(latin, [], "английские подписи на кнопках: %s" % latin)
 
     def test_utm_and_msk_rows(self):
         self.show("EPSG:4326", QgsRectangle(38.2, 55.85, 38.5, 55.95))

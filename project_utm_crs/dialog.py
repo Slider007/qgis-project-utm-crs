@@ -3,7 +3,6 @@ from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QFont
 from qgis.PyQt.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -34,21 +33,22 @@ class CrsDialog(QDialog):
         self.refresh_btn = QPushButton("Определить заново")
         self.apply_btn = QPushButton("Назначить проекту")
         self.apply_btn.setDefault(True)
+        # своя кнопка, а не QDialogButtonBox: стандартная осталась бы английской «Close»
+        self.close_btn = QPushButton("Закрыть")
         buttons = QHBoxLayout()
         buttons.addWidget(self.refresh_btn)
         buttons.addStretch()
         buttons.addWidget(self.apply_btn)
-        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        close.rejected.connect(self.close)
+        buttons.addWidget(self.close_btn)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.info)
         layout.addWidget(self.list, 1)
         layout.addLayout(buttons)
-        layout.addWidget(close)
 
         self.refresh_btn.clicked.connect(self.refresh)
         self.apply_btn.clicked.connect(self.apply)
+        self.close_btn.clicked.connect(self.close)
         self.list.itemDoubleClicked.connect(self.apply)
         self.list.currentItemChanged.connect(self._update_buttons)
         self._update_buttons()
