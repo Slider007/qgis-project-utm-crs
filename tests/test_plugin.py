@@ -36,6 +36,7 @@ from qgis.core import (  # noqa: E402
 from qgis.gui import QgsMapCanvas  # noqa: E402
 from qgis.PyQt import sip  # noqa: E402
 from qgis.PyQt.QtCore import QEvent  # noqa: E402
+from qgis.PyQt.QtNetwork import QNetworkReply  # noqa: E402
 from qgis.PyQt.QtWidgets import QMainWindow, QMenu, QPushButton, QToolBar  # noqa: E402
 
 app = QgsApplication([], True, PROFILE)
@@ -144,6 +145,57 @@ def toolbars(iface):
 def reverse_answer(iso, state):
     return {"address": {"state": state, "ISO3166-2-lvl4": iso, "country": "Россия",
                         "country_code": "ru"}}
+
+
+class Reply:
+    """Ответ сети для проверки разбора: QgsNetworkReplyContent нам не создать."""
+
+    def __init__(self, error, content):
+        self._error, self._content = error, content
+
+    def error(self): return self._error
+
+    def content(self): return self._content
+
+
+class NetworkTest(unittest.TestCase):
+    def test_timeout_reads_as_no_connection(self):
+        """Истёкший срок: у ответа ошибка и пустое тело — это «нет связи», а не «непонятный ответ»."""
+        reply = Reply(QNetworkReply.NetworkError.OperationCanceledError, b"")
+        answer, error = msk._answer_from_reply(reply)
+        self.assertIsNone(answer)
+        self.assertEqual(error, msk.NO_ANSWER)
+
+    def test_empty_body_reads_as_no_connection(self):
+        answer, error = msk._answer_from_reply(Reply(QNetworkReply.NetworkError.NoError, b"  "))
+        self.assertIsNone(answer)
+        self.assertEqual(error, msk.NO_ANSWER)
+
+    def test_broken_body(self):
+        answer, error = msk._answer_from_reply(Reply(QNetworkReply.NetworkError.NoError, b"<html>"))
+        self.assertIsNone(answer)
+        self.assertIn("ответил непонятно", error)
+
+    def test_good_body(self):
+        reply = Reply(QNetworkReply.NetworkError.NoError, b'{"address": {"country_code": "ru"}}')
+        answer, error = msk._answer_from_reply(reply)
+        self.assertIsNone(error)
+        self.assertEqual(answer["address"]["country_code"], "ru")
+
+    def test_shared_texts_without_buttons(self):
+        """msk.py копируется в другие модули: названий кнопок этого окна в нём быть не должно."""
+        for text in (msk.NO_ANSWER,
+                     msk._answer_from_reply(Reply(QNetworkReply.NetworkError.NoError, b"<html>"))[1]):
+            self.assertNotIn("Определить заново", text)
+            self.assertNotIn("нажмите", text.lower())
+
+    def test_request_waits_ten_seconds(self):
+        """Свой срок ожидания: общий таймаут сети QGIS — 60 с, столько ждать незачем."""
+        request = msk._request(39.7, 47.2)
+        self.assertEqual(request.transferTimeout(), msk.TIMEOUT_MS)
+        self.assertLessEqual(msk.TIMEOUT_MS, 15000)
+        self.assertIn(b"project_utm_crs", bytes(request.rawHeader(b"User-Agent")))
+        self.assertIn("lat=47.200000", request.url().toString())
 
 
 class MskDataTest(unittest.TestCase):
@@ -283,13 +335,33 @@ class PluginTest(unittest.TestCase):
         self.assertIsInstance(dlg, dialog_module.CrsDialog)
         rows = self.rows(dlg)
         self.assertEqual(rows[0], "WGS 84 / UTM zone 37N (EPSG:32637)")
-        self.assertTrue(rows[1].startswith("МСК-50 зона 2 Московская область"))
-        self.assertTrue(rows[2].startswith("МСК-50 зона 1 Московская область"))
+        self.assertEqual(rows[1], "МСК-50 зона 2")
+        self.assertEqual(rows[2], "МСК-50 зона 1")
+        # субъект назван один раз, в подписи над списком; подробности — в подсказке строки
+        self.assertIn("Московская область", dlg.list.item(1).toolTip())
+        self.assertIn("осевой меридиан", dlg.list.item(1).toolTip())
         self.assertTrue(dlg.list.item(1).font().bold())
         self.assertIn("Московская область (50)", dlg.info.text())
         self.assertEqual(dlg.list.currentRow(), 0)
         # повторное нажатие поднимает то же окно
         self.assertIs(self.open(), dlg)
+
+    def test_previous_crs_shown(self):
+        """После назначения видно, что было до него."""
+        self.show("EPSG:4326", QgsRectangle(38.2, 55.85, 38.5, 55.95))
+        dlg = self.open()
+        dlg.list.setCurrentRow(1)
+        dlg.apply()
+        self.assertIn("было: WGS 84", dlg.info.text())
+        self.assertIn("Сейчас у проекта: МСК-50 зона 2", dlg.info.text())
+
+    def test_info_label_fits_text(self):
+        """Подписи хватает высоты на перенесённый текст — иначе строки срезает."""
+        self.show("EPSG:4326", QgsRectangle(38.2, 55.85, 38.5, 55.95))
+        dlg = self.open()
+        dlg.layout().activate()
+        width = max(dlg.info.width(), 1)
+        self.assertGreaterEqual(dlg.info.minimumHeight(), dlg.info.heightForWidth(width))
 
     def test_apply_utm(self):
         self.show("EPSG:4326", QgsRectangle(37.0, 55.5, 38.2, 56.0))
@@ -327,8 +399,10 @@ class PluginTest(unittest.TestCase):
         self.show("EPSG:4326", QgsRectangle(10, 85, 20, 88))
         msk.reverse_geocode = lambda lon, lat: ({}, None)
         dlg = self.open()
-        self.assertEqual(dlg.list.count(), 0)
+        self.assertEqual(self.rows(dlg), ["Для этого места система координат не подобрана"])
         self.assertFalse(dlg.apply_btn.isEnabled())
+        dlg.apply()                      # по строке-подсказке ничего не происходит
+        self.assertEqual(self.iface.bar.messages, [])
         self.assertIn("84", dlg.info.text())
         self.assertEqual(QgsProject.instance().crs().authid(), "EPSG:4326")
 
@@ -338,7 +412,7 @@ class PluginTest(unittest.TestCase):
         dlg = self.open()
         # без ответа сервиса не знаем, есть ли для места МСК: СК-63 не показываем
         self.assertEqual(self.rows(dlg), ["WGS 84 / UTM zone 37N (EPSG:32637)"])
-        self.assertIn("МСК не показаны", dlg.info.text())
+        self.assertIn("Пока показана только зона UTM", dlg.info.text())
 
     def test_cs63_for_kherson(self):
         # OpenStreetMap отдаёт Украину: МСК нет, показываем СК-63
@@ -349,7 +423,8 @@ class PluginTest(unittest.TestCase):
         dlg = self.open()
         rows = self.rows(dlg)
         self.assertEqual(rows[0], "WGS 84 / UTM zone 36N (EPSG:32636)")
-        self.assertTrue(rows[1].startswith("СК-63 район X зона 4 (EPSG:7828)"), rows[1])
+        self.assertEqual(rows[1], "СК-63 район X зона 4 (EPSG:7828)")
+        self.assertIn("32.50", dlg.list.item(1).toolTip())
         self.assertTrue(rows[2].startswith("СК-63 район X зона 5"))
         self.assertTrue(rows[3].startswith("СК-63 район X зона 3"))
         self.assertTrue(dlg.list.item(1).font().bold())
