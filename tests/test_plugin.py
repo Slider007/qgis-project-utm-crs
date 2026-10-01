@@ -178,6 +178,16 @@ class MskDataTest(unittest.TestCase):
         self.assertEqual(len(zones), 14)
         self.assertEqual(msk.zones_for(17, 94.0), [])  # Тывы в наборе нет
 
+    def test_short_name_and_item_for_crs(self):
+        item = msk.zones_for(50, 36.6)[0]
+        self.assertEqual(msk.short_name(item), "МСК-50 зона 1")
+        exact = QgsCoordinateReferenceSystem.fromProj(item["proj"])
+        self.assertEqual(msk.item_for_crs(exact), item)
+        # пользовательская СК из набора узнаётся по строке PROJ
+        self.assertEqual(msk.item_for_crs(msk.crs_for(item)), item)
+        self.assertIsNone(msk.item_for_crs(QgsCoordinateReferenceSystem("EPSG:4326")))
+        self.assertIsNone(msk.item_for_crs(QgsCoordinateReferenceSystem()))
+
     def test_crs_registered_once(self):
         item = [i for i in msk.items() if i["name"].startswith("МСК-50 зона 2")][0]
         registry = QgsApplication.coordinateReferenceSystemRegistry()

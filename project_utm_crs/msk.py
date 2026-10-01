@@ -51,6 +51,15 @@ def central_meridian(item):
     return float(m.group(1)) if m else None
 
 
+def short_name(item):
+    """«МСК-50 зона 1» из «МСК-50 зона 1 Московская область»."""
+    name = item["name"]
+    subject = item["subject"]
+    if subject and name.endswith(subject):
+        name = name[: -len(subject)]
+    return name.strip()
+
+
 # ------------------------------------------------------------ субъект по месту
 
 def region_from_reverse(answer):
@@ -108,7 +117,16 @@ def zones_for(code, lon):
 # ------------------------------------------------------------ СК QGIS
 
 def _norm_proj(proj):
-    return " ".join(p for p in proj.split() if p != "+type=crs")
+    return " ".join(p for p in (proj or "").split() if p != "+type=crs")
+
+
+def item_for_crs(crs):
+    """Запись набора для СК QGIS (в том числе пользовательской СК из набора) или None."""
+    key = _norm_proj(crs.toProj())
+    for item in items():
+        if _norm_proj(item["proj"]) == key:
+            return item
+    return None
 
 
 def crs_for(item, register=True):
