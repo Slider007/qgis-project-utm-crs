@@ -195,16 +195,17 @@ class NetworkTest(unittest.TestCase):
         self.assertEqual(request.transferTimeout(), msk.TIMEOUT_MS)
         self.assertLessEqual(msk.TIMEOUT_MS, 15000)
         self.assertIn(b"project_utm_crs", bytes(request.rawHeader(b"User-Agent")))
-        self.assertIn("lat=47.200000", request.url().toString())
+        self.assertIn("lat=47.200&", request.url().toString())  # три знака — решение 2026-10-01
 
 
 class MskDataTest(unittest.TestCase):
     def test_set(self):
         data = msk.items()
-        self.assertEqual(len(data), 253)
+        self.assertEqual(len(data), 257)
         self.assertEqual(len({i["name"] for i in data}), len(data))
-        self.assertEqual(len({i["code"] for i in data}), 80)
-        known = set(msk.ISO_TO_CODE.values())
+        self.assertEqual(len({i["code"] for i in data}), 81)
+        # Крым (90): Nominatim отдаёт его с country_code ua и без ISO3166-2-lvl4
+        known = set(msk.ISO_TO_CODE.values()) | {90}
         for item in data:
             with self.subTest(item["name"]):
                 self.assertIn(item["code"], known)
@@ -261,6 +262,14 @@ class MskDataTest(unittest.TestCase):
         if error:
             self.skipTest(error)
         self.assertEqual(msk.region_from_reverse(answer), (50, "Московская область"))
+
+    def test_request_rounds_coordinates(self):
+        """Во внешний сервис уходит ~100 м, а не 10 см: для субъекта хватает, закрытый объект не раскрывается."""
+        url = msk._request(38.123456, 55.987654).url().toString()
+        self.assertIn("lat=55.988", url)
+        self.assertIn("lon=38.123", url)
+        self.assertNotIn("55.987654", url)
+        self.assertNotIn("38.123456", url)
 
 
 class Cs63Test(unittest.TestCase):
